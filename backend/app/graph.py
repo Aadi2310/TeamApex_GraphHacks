@@ -83,7 +83,12 @@ def retrieve(user_id, question, limit=12):
             for n in [g,t]+linked:
                 nid=n.get("id")
                 if nid and nid not in seen:
-                    seen.add(nid); out.append({"id":nid,"type":n.get("kind") or ("goal" if nid.startswith("goal-") else "task"),"content":n.get("content") or n.get("title") or "","title":n.get("title"),"status":n.get("status"),"confidence":n.get("confidence"),"source":n.get("source"),"score":score+1,"path":["User","HAS_GOAL","Goal","HAS_TASK","Task"]})
+                    seen.add(nid)
+                    kind="memory" if nid.startswith("mem-") else "goal" if nid.startswith("goal-") else "task" if nid.startswith("task-") else "related"
+                    path=(["User","HAS_GOAL","Goal"] if kind=="goal" else ["User","HAS_GOAL","Goal","HAS_TASK","Task"])
+                    if kind=="memory": path=path+["RELATED_TO","Memory"]
+                    elif kind=="related": path=path+["RELATED_TO","Related node"]
+                    out.append({"id":nid,"type":kind,"content":n.get("content") or n.get("title") or "","title":n.get("title"),"status":n.get("status"),"confidence":n.get("confidence"),"source":n.get("source"),"score":score+1,"path":path})
     # Also retrieve explicitly linked memories from matching goal/task neighborhood.
     mr=query("MATCH (u:User {id:$uid})-[:HAS_GOAL]->(g:Goal)-[:HAS_TASK]->(t:Task)-[:RELATED_TO*0..2]-(m:Memory {user_id:$uid}) WHERE m.status <> 'superseded' RETURN DISTINCT m,g,t LIMIT $lim", {"uid":user_id,"lim":limit})
     for row in rows(mr):
