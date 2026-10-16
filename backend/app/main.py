@@ -44,9 +44,9 @@ def extract(text):
     goal_match=re.search(r"(?:my goal is to|goal is to|goal:?)\s+(.+?)(?:[.!?]|$)",text,re.I)
     if goal_match: found.append(("goal",goal_match.group(1).strip()))
     # Explicit task status phrases, including the hackathon demo sentence.
-    for m in re.finditer(r"(?:completed|finished|done with)\s+(?:the\s+)?([^,.!?]+)",text,re.I): found.append(("completed",m.group(1).strip()))
-    for m in re.finditer(r"(?:still\s+pending|pending|not started|haven't started)\s+(?:is\s+)?(?:the\s+)?([^,.!?]+)",text,re.I): found.append(("pending",m.group(1).strip()))
-    for m in re.finditer(r"(?:the\s+)?([^,.!?]+?)\s+(?:is|are)\s+(?:still\s+)?pending\b",text,re.I): found.append(("pending",m.group(1).strip()))
+    for m in re.finditer(r"(?:completed|finished|done with)\s+(?:the\s+)?([^,.!?]+)",text,re.I): found.append(("completed",re.sub(r"^(?:but|and)\s+","",m.group(1).strip(),flags=re.I)))
+    for m in re.finditer(r"(?:still\s+pending|pending|not started|haven't started)\s+(?:is\s+)?(?:the\s+)?([^,.!?]+)",text,re.I): found.append(("pending",re.sub(r"^(?:but|and)\s+","",m.group(1).strip(),flags=re.I)))
+    for m in re.finditer(r"(?:the\s+)?([^,.!?]+?)\s+(?:is|are)\s+(?:still\s+)?pending\b",text,re.I): found.append(("pending",re.sub(r"^(?:but|and)\s+","",m.group(1).strip(),flags=re.I)))
     if "goal" not in [k for k,_ in found]:
         # Capture project targets as a durable fact even when not written with "goal".
         m=re.search(r"(?:building|working on|project is)\s+(.+?)(?:[.!?]|$)",text,re.I)
@@ -163,4 +163,11 @@ def reflect(x_user_id:Optional[str]=Header(None)):
     return {"reviewed":len(reviewed),"potential_conflicts":list({tuple(x) for x in conflicts}),"note":"Potential conflicts are surfaced for review; uncertain information is not automatically superseded."}
 @app.get("/api/agents/activity")
 def agent_activity(x_user_id:Optional[str]=Header(None)):
-    return {"activity":[graph.node_props(x.get("a")) for x in graph.activity(uid(x_user_id))]}
+    import json
+    items=[]
+    for x in graph.activity(uid(x_user_id)):
+        item=graph.node_props(x.get("a")); raw=item.pop("memories_affected_json", "[]")
+        try: item["memories_affected"]=json.loads(raw)
+        except (TypeError,ValueError): item["memories_affected"]=[]
+        items.append(item)
+    return {"activity":items}

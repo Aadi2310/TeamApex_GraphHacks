@@ -1,5 +1,5 @@
 """FalkorDB access. Every application query is parameterized and user scoped."""
-import os
+import os, json
 from datetime import datetime, timezone
 from falkordb import FalkorDB
 
@@ -25,7 +25,7 @@ def query(cypher, params=None):
 
 def rows(result):
     # FalkorDB's Python client headers are [column_name, column_type] pairs.
-    names=[column[0] if isinstance(column,(tuple,list)) else getattr(column,"name",column) for column in result.header]
+    names=[column[1] if isinstance(column,(tuple,list)) and len(column)>1 else getattr(column,"name",column) for column in result.header]
     return [dict(zip(names,row)) for row in result.result_set]
 
 def node_props(node):
@@ -113,5 +113,5 @@ def goals(user_id): return rows(query("MATCH (u:User {id:$uid})-[:HAS_GOAL]->(g:
 def activity(user_id): return rows(query("MATCH (a:Agent {user_id:$uid}) RETURN a ORDER BY a.created_at DESC LIMIT 100", {"uid":user_id}))
 def log_agent(user_id,name,operation,status,memories_affected=None,detail=""):
     aid="activity-"+__import__('uuid').uuid4().hex; now=utcnow()
-    query("MERGE (u:User {id:$uid}) CREATE (a:Agent {id:$id,user_id:$uid,name:$name,operation:$op,status:$status,memories_affected:$affected,detail:$detail,created_at:$now}) CREATE (u)-[:RELATED_TO]->(a)", {"uid":user_id,"id":aid,"name":name,"op":operation,"status":status,"affected":memories_affected or [],"detail":detail,"now":now})
+    query("MERGE (u:User {id:$uid}) CREATE (a:Agent {id:$id,user_id:$uid,name:$name,operation:$op,status:$status,memories_affected_json:$affected,detail:$detail,created_at:$now}) CREATE (u)-[:RELATED_TO]->(a)", {"uid":user_id,"id":aid,"name":name,"op":operation,"status":status,"affected":json.dumps(memories_affected or []),"detail":detail,"now":now})
     return aid
