@@ -1,0 +1,13 @@
+/* Keep long user-provided text inside the dashboard's fixed-width regions. */
+.side{min-width:0;overflow-x:clip}
+.side .nav{width:100%;min-width:0;overflow:hidden}
+.side .nav>span{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.brand{min-width:0}
+.brand>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.workspace,.avatar,.avatar .label{min-width:0}
+.avatar .label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.content,.chatbox,.rail,.card,.chathead,.messages,.bubble{min-width:0}
+.bubble{overflow-wrap:anywhere}
+.agent>div:last-child,.memory,.taskrow>span{min-width:0;overflow-wrap:anywhere}
+.cardtitle{min-width:0;gap:10px}
+.tag{max-width:100%;overflow-wrap:anywhere}
