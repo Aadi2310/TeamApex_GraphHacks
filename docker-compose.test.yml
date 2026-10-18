@@ -1,0 +1,22 @@
+services:
+  falkordb:
+    ports: []
+    volumes:
+      - falkordb_test_data:/var/lib/falkordb/data
+
+  backend-tests:
+    build:
+      context: ./backend
+      target: test
+    environment:
+      FALKORDB_HOST: falkordb
+      FALKORDB_PORT: "6379"
+      FALKORDB_GRAPH: graphmind_test
+      LLM_PROVIDER: deterministic
+      USER_ID: demo-user
+    depends_on:
+      falkordb:
+        condition: service_healthy
+
+volumes:
+  falkordb_test_data:
