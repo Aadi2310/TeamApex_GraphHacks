@@ -9,7 +9,7 @@ GraphMind is a small, working multi-agent memory MVP. FastAPI stores messages, m
 3. Run `docker compose up --build`.
 4. Open the UI at [http://localhost:3001](http://localhost:3001), API docs at [http://localhost:8000/docs](http://localhost:8000/docs), and FalkorDB Browser at [http://localhost:3000](http://localhost:3000).
 
-FalkorDB persists data in the `falkordb_data` Docker volume. Check connectivity at `GET /api/health`. Set `LLM_PROVIDER=openai`, `LLM_API_KEY`, and optionally `LLM_MODEL` to enable the OpenAI-compatible chat completion path. The deterministic mode still writes and reads actual FalkorDB records; it is not a memory mock. `X-User-ID` selects a workspace (the UI currently uses `demo-user`).
+FalkorDB persists data in the `falkordb_data` Docker volume. Check connectivity at `GET /api/health`. Set `LLM_PROVIDER=groq` with `GROQ_API_KEY` (and optionally `GROQ_CHAT_MODEL`) or `LLM_PROVIDER=openai` with `OPENAI_API_KEY` and optionally `CHAT_MODEL` to enable AI chat completions. The legacy `LLM_API_KEY` and `LLM_MODEL` settings remain deprecated aliases for OpenAI. The deterministic mode still writes and reads actual FalkorDB records; it is not a memory mock. `X-User-ID` selects a workspace (the UI currently uses `demo-user`).
 
 ## Demo scenario
 
@@ -81,13 +81,24 @@ No credentials are committed; `.env.example` contains placeholders. LLMs do not 
 
 ## Verification and demo recording
 
-Run the checks from a clean checkout:
+Run the checks from a clean checkout. Install the locked backend development environment with [uv](https://docs.astral.sh/uv/):
 
 ```sh
-docker compose up --build -d
-curl http://localhost:8000/api/health
+cd backend
+uv sync --locked --group dev
+uv run ruff check app tests
+uv run mypy app
 ```
 
-Then follow the demo scenario and confirm node/edge changes in the FalkorDB Browser. Automated integration tests are in `backend/tests`; run them after starting FalkorDB with `pip install -r backend/requirements.txt pytest` and `pytest backend/tests`.
+Run the database-backed backend tests with Docker and the isolated test graph:
+
+```sh
+cd ..
+docker compose -f docker-compose.yml -f docker-compose.test.yml run --build --rm backend-tests
+```
+
+For the frontend checks, run `npm ci`, `npm run lint`, `npx tsc --noEmit`, and `npm run build` from `frontend/`. Provide `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_WS_URL` when building the Docker image; the Compose defaults target the local API.
+
+Then follow the demo scenario and confirm node/edge changes in the FalkorDB Browser.
 
 For a short demo video, record the first prompt, the answer’s “Why this answer?” evidence, a refresh/new conversation, the Planner recommendation, a task status update, and the changed recommendation. The project was created with AI coding assistance; the human team should review and understand the code and technical decisions before submission.
