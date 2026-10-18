@@ -1,4 +1,4 @@
-# GraphMind OS
+# GraphMind
 
 GraphMind is a small, working multi-agent memory MVP. FastAPI stores messages, memories, goals, tasks, and agent events as connected FalkorDB nodes. The Planner reads the active goal and its connected task statuses from FalkorDB to recommend the next open task. The chat UI displays the retrieved records and graph paths that informed each answer.
 
