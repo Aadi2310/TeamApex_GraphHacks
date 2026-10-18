@@ -1,24 +1,52 @@
 services:
   falkordb:
-    image: falkordb/falkordb:latest
-    ports: ["6379:6379", "3000:3000"]
-    volumes: ["falkordb_data:/var/lib/falkordb/data"]
+    image: falkordb/falkordb:v4.20.4
+    ports:
+      - "6379:6379"
+      - "3000:3000"
+    environment:
+      REDIS_ARGS: "--save 60 1 --appendonly yes --appendfsync everysec"
+    volumes:
+      - falkordb_data:/var/lib/falkordb/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 20
+      start_period: 10s
+
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      target: runtime
     env_file: .env
-    ports: ["8000:8000"]
+    ports:
+      - "8000:8000"
     depends_on:
-      falkordb: {condition: service_healthy}
+      falkordb:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
   frontend:
-    build: ./frontend
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-    ports: ["3001:3000"]
-    depends_on: [backend]
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:8000}
+    ports:
+      - "3001:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
 volumes:
   falkordb_data:
