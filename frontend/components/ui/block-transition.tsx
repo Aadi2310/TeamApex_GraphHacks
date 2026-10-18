@@ -72,6 +72,9 @@ export default function BlockTransition({
   if (!isLeaving) shownChildrenRef.current = children;
 
   const getRows = () => rowRefs.current.slice(0, safeRows).filter(Boolean) as HTMLDivElement[];
+  const animationConfigRef = useRef({ enableContentShift, safeDuration });
+  animationConfigRef.current = { enableContentShift, safeDuration };
+  const buildRowsAnimationRef = useRef<(timeline: gsap.core.Timeline, direction: "cover" | "reveal") => void>(() => {});
 
   const buildRowsAnimation = (timeline: gsap.core.Timeline, direction: "cover" | "reveal") => {
     const blockRows = getRows();
@@ -103,6 +106,7 @@ export default function BlockTransition({
       }
     });
   };
+  buildRowsAnimationRef.current = buildRowsAnimation;
 
   useIsomorphicLayoutEffect(() => {
     rowRefs.current = rowRefs.current.slice(0, safeRows);
@@ -135,14 +139,15 @@ export default function BlockTransition({
       return;
     }
 
-    if (enableContentShift) {
+    const { enableContentShift: shiftContent, safeDuration: currentDuration } = animationConfigRef.current;
+    if (shiftContent) {
       timeline.fromTo(wrapperRef.current,
         { scale: 1, filter: "blur(0px)", opacity: 1 },
-        { scale: SHIFT_SCALE_OUT, filter: `blur(${SHIFT_BLUR})`, opacity: 0.85, duration: SHIFT_DURATION_OUT * safeDuration, ease: "power2.inOut" },
+        { scale: SHIFT_SCALE_OUT, filter: `blur(${SHIFT_BLUR})`, opacity: 0.85, duration: SHIFT_DURATION_OUT * currentDuration, ease: "power2.inOut" },
         0,
       );
     }
-    buildRowsAnimation(timeline, "cover");
+    buildRowsAnimationRef.current(timeline, "cover");
   }, [transitionKey, view.key]);
 
   useIsomorphicLayoutEffect(() => {
@@ -160,14 +165,15 @@ export default function BlockTransition({
       timeline.to(wrapper, { opacity: 1, duration: REDUCED_MOTION_FADE, ease: "power1.out", clearProps: "opacity" }, 0);
       return;
     }
-    if (enableContentShift) {
+    const { enableContentShift: shiftContent, safeDuration: currentDuration } = animationConfigRef.current;
+    if (shiftContent) {
       timeline.fromTo(wrapper,
         { scale: SHIFT_SCALE_IN, filter: `blur(${SHIFT_BLUR})`, opacity: 0.85 },
-        { scale: 1, filter: "blur(0px)", opacity: 1, duration: SHIFT_DURATION_IN * safeDuration, ease: "power2.out", clearProps: "transform,filter,opacity" },
+        { scale: 1, filter: "blur(0px)", opacity: 1, duration: SHIFT_DURATION_IN * currentDuration, ease: "power2.out", clearProps: "transform,filter,opacity" },
         0.08,
       );
     }
-    buildRowsAnimation(timeline, "reveal");
+    buildRowsAnimationRef.current(timeline, "reveal");
   }, [view.revision]);
 
   useEffect(() => {
