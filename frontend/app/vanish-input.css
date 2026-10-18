@@ -1,0 +1,13 @@
+.vanish-input{position:relative;width:100%;height:44px;overflow:hidden;border:1px solid #353637;border-radius:4px;background:#141516;transition:border-color .18s}
+.vanish-input:focus-within{border-color:#626465}
+.vanish-input__field{position:relative;z-index:1;width:100%;height:100%;padding:0 49px 0 13px;border:0;outline:0;background:transparent;color:#edeeee;font-size:12px}
+.vanish-input__field:disabled{opacity:1}
+.vanish-input__field.is-animating{color:transparent}
+.vanish-input__canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:0;z-index:2}
+.vanish-input__canvas.is-animating{opacity:1}
+.vanish-input__placeholder{position:absolute;inset:0;display:flex;align-items:center;padding:0 52px 0 13px;overflow:hidden;white-space:nowrap;color:#737577;font-size:11px;pointer-events:none}
+.vanish-input__placeholder span{overflow:hidden;text-overflow:ellipsis}
+.vanish-input__submit{position:absolute;z-index:3;right:6px;top:50%;width:30px;height:30px;transform:translateY(-50%);display:grid;place-items:center;border:1px solid #4b4d4e;border-radius:4px;background:#242627;color:#d8d9da;transition:background .16s,border-color .16s}
+.vanish-input__submit:hover:not(:disabled){background:#363839}
+.vanish-input__submit:disabled{background:#1b1c1d;color:#66686a;cursor:not-allowed}
+.vanish-input__submit svg{width:15px;height:15px}
