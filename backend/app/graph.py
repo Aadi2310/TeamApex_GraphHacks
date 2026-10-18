@@ -1,9 +1,13 @@
 """FalkorDB access. Every application query is parameterized and user scoped."""
-import os, json, hashlib, uuid
+import os
+import json
+import hashlib
+import uuid
+import logging
 from datetime import datetime, timezone
 try:
     from dotenv import load_dotenv
-    load_dotenv(override=True)
+    load_dotenv()
 except ImportError:
     pass
 try:
@@ -13,6 +17,7 @@ except ImportError:
 
 DB = None
 GRAPH = None
+logger = logging.getLogger(__name__)
 
 def utcnow():    
     return datetime.now(timezone.utc).isoformat()
@@ -39,18 +44,33 @@ def connect():
         "CREATE INDEX FOR (n:Person) ON (n.user_id)",
         "CREATE INDEX FOR (n:Mistake) ON (n.user_id)",
         "CREATE INDEX FOR (n:Habit) ON (n.user_id)",
+        "CREATE INDEX FOR (n:Session) ON (n.user_id)",
+        "CREATE INDEX FOR (n:Message) ON (n.user_id)",
+        "CREATE INDEX FOR (n:Agent) ON (n.user_id)",
     )
     for q in indexes:
         try:
             GRAPH.query(q)
-        except Exception:
-            pass
+        except Exception as exc:
+            # Repeated startup commonly encounters already-created indexes. Keep the
+            # application available, but leave a diagnostic without exposing query data.
+            logger.warning("FalkorDB index setup skipped (%s)", type(exc).__name__)
     return GRAPH
 
 def query(cypher, params=None):
     if GRAPH is None:
         connect()
     return GRAPH.query(cypher, params or {})
+
+def user_entity_exists(label, entity_id, user_id):
+    """Check an allowed, user-owned entity before creating graph relationships."""
+    if label not in {"Task", "Goal", "Project", "Person", "Mistake", "Habit", "Memory"}:
+        raise ValueError("Unsupported graph entity type")
+    result = query(
+        f"MATCH (n:{label} {{id:$id, user_id:$uid}}) RETURN n.id LIMIT 1",
+        {"id": entity_id, "uid": user_id},
+    )
+    return bool(result.result_set)
 
 def rows(result):
     # FalkorDB's Python client headers are [column_name, column_type] pairs.
@@ -199,11 +219,12 @@ def upsert_habit(user_id, pattern, strength=1.0, context=""):
     return hid
 
 def add_task_dependency(user_id, task_id, depends_on_id):
-    query(
+    result = query(
         "MATCH (t1:Task {id:$tid, user_id:$uid}), (t2:Task {id:$did, user_id:$uid}) "
-        "MERGE (t1)-[:DEPENDS_ON]->(t2)",
+        "MERGE (t1)-[:DEPENDS_ON]->(t2) RETURN t1.id AS source, t2.id AS target",
         {"tid": task_id, "did": depends_on_id, "uid": user_id}
     )
+    return bool(result.result_set)
 
 def link_task_to_person(user_id, task_id, person_id):
     query(
@@ -308,6 +329,32 @@ def retrieve(user_id, question, limit=12):
                         "path": path
                     })
                     
+    # Tasks also belong directly to a user, even when no goal has been linked yet.
+    # Include them so chat and planning work with ordinary task-only messages too.
+    task_result = query(
+        "MATCH (u:User {id:$uid})-[:HAS_TASK]->(t:Task {user_id:$uid}) "
+        "RETURN t ORDER BY t.updated_at DESC LIMIT $lim",
+        {"uid": user_id, "lim": limit}
+    )
+    for row in rows(task_result):
+        task = node_props(row.get("t"))
+        task_id = task.get("id")
+        title = task.get("title") or ""
+        score = sum(1 for term in terms if term in title.lower())
+        if task_id and task_id not in seen and (score or not terms):
+            seen.add(task_id)
+            out.append({
+                "id": task_id,
+                "type": "task",
+                "content": title or task.get("description") or "",
+                "title": title,
+                "status": task.get("status"),
+                "confidence": None,
+                "source": None,
+                "score": score + 1,
+                "path": ["User", "HAS_TASK", "Task"]
+            })
+
     # Also retrieve explicitly linked memories from matching goal/task neighborhood.
     mr = query(
         "MATCH (u:User {id:$uid})-[:HAS_GOAL]->(g:Goal)-[:HAS_TASK]->(t:Task)-[:RELATED_TO*0..2]-(m:Memory {user_id:$uid}) "
