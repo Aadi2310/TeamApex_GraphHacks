@@ -1,93 +1,117 @@
 # GraphMind OS
 
-GraphMind is a small, working multi-agent memory MVP. FastAPI stores messages, memories, goals, tasks, and agent events as connected FalkorDB nodes. The Planner reads the active goal and its connected task statuses from FalkorDB to recommend the next open task. The chat UI displays the retrieved records and graph paths that informed each answer.
+GraphMind OS is a graph-backed memory workspace for AI agents. It stores conversations, goals, tasks, projects, lessons, habits, and agent activity in FalkorDB so the Planner can retrieve connected context and recommend the next open task.
 
-## Run locally
+The frontend uses a dark, Qronos-inspired dashboard theme. It includes Chat, Memory Graph, Goals & Tasks, and Agent Activity views; animated page transitions; a responsive sidebar; recent conversation history; and a top-to-bottom graph view with optional secondary links.
 
-1. Install Docker Desktop and start it.
-2. Copy `.env.example` to `.env`. The defaults use FalkorDB on the Compose network and deterministic local answers, so no paid API key is needed.
-3. Run `docker compose up --build`.
-4. Open the UI at [http://localhost:3001](http://localhost:3001), API docs at [http://localhost:8000/docs](http://localhost:8000/docs), and FalkorDB Browser at [http://localhost:3000](http://localhost:3000).
+## Features
 
-FalkorDB persists data in the `falkordb_data` Docker volume. Check connectivity at `GET /api/health`. Set `LLM_PROVIDER=openai`, `LLM_API_KEY`, and optionally `LLM_MODEL` to enable the OpenAI-compatible chat completion path. The deterministic mode still writes and reads actual FalkorDB records; it is not a memory mock. `X-User-ID` selects a workspace (the UI currently uses `demo-user`).
+- Persistent, user-scoped graph memory powered by FalkorDB.
+- Chat sessions that can be reopened from **Recent** and continue across refreshes.
+- Deterministic local memory extraction for goals, task status, mistakes, habits, and project mentions.
+- Graph-aware Planner recommendations based on active goals, task status, dependencies, and related lessons.
+- A readable, vertically arranged memory graph with a toggle for additional relationships.
+- Workspace views for goals and tasks and agent activity; API support for projects, people, mistakes, and habits.
+- Optional OpenAI chat completions; deterministic mode works without an API key.
 
-## Demo scenario
+## Run with Docker Compose
+
+You need Docker Desktop with the Linux container engine running.
+
+```powershell
+Copy-Item .env.example .env
+docker compose up --build -d
+```
+
+Open the app and service pages:
+
+- Frontend: [http://localhost:3001](http://localhost:3001)
+- API documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
+- FalkorDB Browser: [http://localhost:3000](http://localhost:3000)
+
+Check that the API can reach FalkorDB at [http://localhost:8000/api/health](http://localhost:8000/api/health). Stop the services with `docker compose down`. Graph data is stored in the `falkordb_data` volume and remains when containers stop; `docker compose down -v` also removes that data.
+
+## Configuration
+
+The defaults in `.env.example` run locally with deterministic responses and do not require a paid API key.
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `FALKORDB_HOST` | FalkorDB host inside Compose | `falkordb` |
+| `FALKORDB_PORT` | FalkorDB port | `6379` |
+| `FALKORDB_USERNAME` | Optional database username | empty |
+| `FALKORDB_PASSWORD` | Optional database password | empty |
+| `FALKORDB_GRAPH` | Graph name | `graphmind` |
+| `LLM_PROVIDER` | `deterministic` or `openai` | `deterministic` |
+| `LLM_API_KEY` | Provider API key when using OpenAI | empty |
+| `LLM_MODEL` | Optional OpenAI chat model override | `gpt-4o-mini` |
+| `USER_ID` | Default API workspace when header is omitted | `demo-user` |
+
+To enable OpenAI responses, set `LLM_PROVIDER=openai` and `LLM_API_KEY` in `.env`, then restart with `docker compose up --build -d`. The API accepts an optional `X-User-ID` header to select a workspace; the frontend currently uses `demo-user`.
+
+## Demo
 
 In Chat, send:
 
 > I'm building GraphMind OS for a hackathon. My goal is to finish the MVP by Sunday. I have completed the chat interface, but the graph retrieval is still pending.
 
-The Memory Agent stores a user message, an active Sunday goal, one completed task, one pending task, and linked memory records. Start a new conversation (or refresh the page) and ask “What should I work on next for my hackathon project?” The Planner queries the graph-connected active goal and task nodes, recommends graph retrieval, and returns evidence with the `User → Goal → Task → RELATED_TO → Memory` path. Mark a task complete in Goals & Tasks, then ask again to see the shared state change the recommendation. Agent Activity includes an explicit Reflection run that reports possible conflicts without deleting history.
+The Memory Agent saves the conversation, goal, task statuses, and related memory. Ask “What should I work on next for my hackathon project?” to see the Planner use graph-connected tasks to recommend the next open item. Visit **Memory Graph** to follow the saved relationships, or **Goals & Tasks** to update task status. Use **Recent** in the sidebar to reopen the conversation. **Agent Activity** includes a reflection action that flags possible conflicts and records `CONTRADICTS` links without deleting history.
 
-## Architecture and graph schema
+## Architecture
 
-* `frontend/` — Next.js, React, TypeScript, and Tailwind CSS. The relationship map is rendered with SVG from live API graph results; no sample graph is hardcoded.
-* `backend/app/main.py` — validated FastAPI API, deterministic extraction, orchestration, and optional provider adapter.
-* `backend/app/graph.py` — FalkorDB connection and all application-controlled, parameterized Cypher.
-* `docker-compose.yml` — FalkorDB with persistent storage, API, and UI.
+| Path | Responsibility |
+| --- | --- |
+| `frontend/` | Next.js, React, and TypeScript dashboard and graph visualization |
+| `frontend/components/ui/` | Page transition, chat composer, and memory graph components |
+| `backend/app/main.py` | FastAPI routes, deterministic extraction, agent orchestration, and optional LLM adapter |
+| `backend/app/graph.py` | FalkorDB connection, graph schema, parameterized Cypher, and user-scoped traversals |
+| `docker-compose.yml` | FalkorDB, API, and frontend services with persistent graph storage |
 
-Node labels: `User`, `Session`, `Message`, `Memory`, `Goal`, `Task`, `Agent`, `Project`, `Person`, `Mistake`, `Habit`. Memory IDs and entity IDs use deterministic sha256 hashes or UUIDs. Properties include user ID, timestamps, source, confidence, task status/priority, and content. The graph schema supports:
-- **Core Organization**: `HAS_SESSION`, `CONTAINS_MESSAGE`, `HAS_MEMORY`, `RELATED_TO`, `HAS_GOAL`, `HAS_TASK`
-- **Execution & Dependencies**: `DEPENDS_ON` (Task → Task), `ASSIGNED_TO` (Task → Person), `WORKS_ON` (User → Project), `BELONGS_TO` (Goal → Project)
-- **Cognitive & Experience**: `MADE_MISTAKE` (User → Mistake), `WARNS_AGAINST` (Mistake → Task), `HAS_HABIT` (User → Habit)
-- **Truth Evolution & Conflict**: `SUPERSEDES` (New → Old Memory), `CONTRADICTS` (Disputed Memory Pairs)
+The graph uses `User`, `Session`, `Message`, `Memory`, `Goal`, `Task`, `Agent`, `Project`, `Person`, `Mistake`, and `Habit` nodes. Relationships include:
 
-Indexes are maintained for `(User.id)`, `(Memory.user_id)`, `(Task.user_id)`, `(Goal.user_id)`, `(Project.user_id)`, `(Person.user_id)`, `(Mistake.user_id)`, and `(Habit.user_id)` at startup.
+- Workspace and memory: `HAS_SESSION`, `CONTAINS_MESSAGE`, `HAS_MEMORY`, `RELATED_TO`, `HAS_GOAL`, `HAS_TASK`
+- Planning: `DEPENDS_ON`, `ASSIGNED_TO`, `WORKS_ON`, `BELONGS_TO`
+- Lessons and preferences: `MADE_MISTAKE`, `WARNS_AGAINST`, `HAS_HABIT`
+- Memory evolution: `SUPERSEDES`, `CONTRADICTS`
 
-### Important Cypher patterns
+Graph traversals constrain records to the requesting user. IDs for durable memories and entities are deterministic hashes; messages and agent events use unique IDs.
 
-Create/merge user-scoped memories with reinforcement:
+## API overview
 
-```cypher
-MERGE (u:User {id:$uid})
-MERGE (m:Memory {id:$mid, user_id:$uid})
-ON CREATE SET m.content=$content, m.kind=$kind, m.source=$source,
-  m.confidence=$confidence, m.created_at=$now, m.status='active', m.reinforcement_count=1
-ON MATCH SET m.updated_at=$now,
-  m.confidence=CASE WHEN m.confidence < $confidence THEN $confidence ELSE m.confidence END,
-  m.reinforcement_count=coalesce(m.reinforcement_count, 1) + 1
-MERGE (u)-[:HAS_MEMORY]->(m)
+All endpoints accept the optional `X-User-ID` header (`demo-user` by default). See `/docs` for request and response schemas.
+
+| Endpoints | Purpose |
+| --- | --- |
+| `POST /api/chat` | Save a message, extract supported memories, retrieve graph context, and respond |
+| `GET /api/sessions`, `GET /api/sessions/{session_id}/messages` | List and load conversation history |
+| `GET /api/memories`, `GET /api/graph`, `GET /api/goals` | Read scoped graph data |
+| `POST /api/tasks`, `PATCH /api/tasks/{task_id}` | Create tasks and update status, priority, or details |
+| `POST /api/tasks/{task_id}/dependency` | Add a task dependency |
+| `GET/POST /api/projects` | Read or create projects |
+| `GET/POST /api/people` | Read or create people |
+| `GET/POST /api/mistakes` | Read or record lessons and prevention rules |
+| `GET/POST /api/habits` | Read or create habits and preferences |
+| `POST /api/agents/reflect`, `GET /api/agents/activity` | Flag possible memory conflicts and inspect agent events |
+| `GET /api/health` | Check the FalkorDB connection |
+
+## Development and verification
+
+Build and start the containers with `docker compose up --build -d`. Follow logs with `docker compose logs -f frontend backend`, then check `GET /api/health`.
+
+The backend integration tests are in `backend/tests`. With FalkorDB running, install the dependencies and pytest, then run:
+
+```sh
+python -m pip install -r backend/requirements.txt pytest
+pytest backend/tests
 ```
 
-Graph-native conflict resolution:
+Build the frontend directly from its directory with:
 
-```cypher
-MATCH (ma:Memory {id:$ida, user_id:$uid}), (mb:Memory {id:$idb, user_id:$uid})
-SET ma.status='disputed', mb.status='disputed'
-MERGE (ma)-[r1:CONTRADICTS]->(mb) SET r1.reason=$reason, r1.created_at=$now
-MERGE (mb)-[r2:CONTRADICTS]->(ma) SET r2.reason=$reason, r2.created_at=$now
+```sh
+npm install
+npm run build
 ```
-
-Planner context starts with the current user and traverses their active goal to connected tasks, evaluates task dependency chains (`DEPENDS_ON`), and traverses connected `Mistake` nodes (`WARNS_AGAINST`) to caution against recurring failure modes. All traversals strictly constrain every visited node to the querying user ID.
-
-## API
-
-All endpoints use the optional `X-User-ID` header (`demo-user` by default). API explorer: `/docs`.
-
-* `POST /api/chat` — save message, extract structured memory (goals, tasks, mistakes, habits, projects), traverse graph, and answer.
-* `GET /api/sessions` and `GET /api/sessions/{session_id}/messages` — scoped conversation history.
-* `GET /api/memories`, `GET /api/graph`, `GET /api/goals` — scoped graph views and live relationship topology.
-* `POST /api/tasks`, `PATCH /api/tasks/{task_id}`, `POST /api/tasks/{task_id}/dependency` — create/update task state and dependency edges.
-* `GET /api/projects`, `POST /api/projects` — project management and goal association.
-* `GET /api/people`, `POST /api/people` — collaborator and stakeholder entity tracking.
-* `GET /api/mistakes`, `POST /api/mistakes` — lessons learned and mistake avoidance rules.
-* `GET /api/habits`, `POST /api/habits` — recurring patterns and behavioral preferences.
-* `POST /api/agents/reflect`, `GET /api/agents/activity` — reflection with graph-native `[:CONTRADICTS]` edge creation and agent event log.
-* `GET /api/health` — FalkorDB connectivity check.
 
 ## Security and limitations
 
-No credentials are committed; `.env.example` contains placeholders. LLMs do not execute arbitrary Cypher. User IDs are validated and every API graph query is scoped by user ID. Reflection reports candidate conflicts, marks them in the graph with `[:CONTRADICTS]`, and preserves audit history without silent deletion. The deterministic extractor handles common phrases for goals, task statuses, mistakes, and habits. The UI currently selects the `demo-user` workspace; production deployments should add authentication and derive the user ID from verified identity rather than trusting a request header. LLM integration currently supports deterministic mode and OpenAI chat completions.
-
-## Verification and demo recording
-
-Run the checks from a clean checkout:
-
-```sh
-docker compose up --build -d
-curl http://localhost:8000/api/health
-```
-
-Then follow the demo scenario and confirm node/edge changes in the FalkorDB Browser. Automated integration tests are in `backend/tests`; run them after starting FalkorDB with `pip install -r backend/requirements.txt pytest` and `pytest backend/tests`.
-
-For a short demo video, record the first prompt, the answer’s “Why this answer?” evidence, a refresh/new conversation, the Planner recommendation, a task status update, and the changed recommendation. The project was created with AI coding assistance; the human team should review and understand the code and technical decisions before submission.
+Do not commit `.env`; `.env.example` contains placeholders. The deterministic extractor recognizes common phrases and is intentionally limited; it is not a general natural-language understanding system. Projects, people, mistakes, and habits can also be created through their API endpoints. The app uses a demo workspace and trusts the `X-User-ID` header, so production deployment requires authentication and deriving workspace identity from a verified user. LLM output is given retrieved graph context and the model does not execute Cypher.
