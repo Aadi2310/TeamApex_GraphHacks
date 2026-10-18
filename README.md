@@ -32,9 +32,81 @@ Node labels: `User`, `Session`, `Message`, `Memory`, `Goal`, `Task`, `Agent`, `P
 - **Cognitive & Experience**: `MADE_MISTAKE` (User → Mistake), `WARNS_AGAINST` (Mistake → Task), `HAS_HABIT` (User → Habit)
 - **Truth Evolution & Conflict**: `SUPERSEDES` (New → Old Memory), `CONTRADICTS` (Disputed Memory Pairs)
 
+```mermaid
+graph TD
+    classDef userNode fill:#BF5738,stroke:#933D24,stroke-width:2px,color:#fff;
+    classDef coreNode fill:#FFFFFF,stroke:#BF5738,stroke-width:1.5px,color:#1A1B1E;
+    classDef execNode fill:#F8F6F2,stroke:#7E8086,stroke-width:1.5px,color:#1A1B1E;
+    classDef cogNode fill:#FBF0EA,stroke:#BF5738,stroke-width:1.5px,color:#1A1B1E;
+
+    User([User]):::userNode
+
+    %% Core Organization & Conversation
+    Session[Session]:::coreNode
+    Message[Message]:::coreNode
+    Memory[Memory]:::coreNode
+
+    User -->|HAS_SESSION| Session
+    Session -->|CONTAINS_MESSAGE| Message
+    User -->|HAS_MEMORY| Memory
+
+    %% Goals, Projects & Execution
+    Project[Project]:::execNode
+    Goal[Goal]:::execNode
+    Task[Task]:::execNode
+    Person[Person]:::execNode
+
+    User -->|WORKS_ON| Project
+    User -->|HAS_GOAL| Goal
+    Goal -->|BELONGS_TO| Project
+    Goal -->|HAS_TASK| Task
+    Task -->|DEPENDS_ON| Task
+    Task -->|ASSIGNED_TO| Person
+    User -->|KNOWS| Person
+    Task -->|RELATED_TO| Memory
+
+    %% Cognitive & Failure Avoidance
+    Mistake[Mistake]:::cogNode
+    Habit[Habit]:::cogNode
+
+    User -->|MADE_MISTAKE| Mistake
+    Mistake -->|WARNS_AGAINST| Task
+    User -->|HAS_HABIT| Habit
+
+    %% Truth Evolution & Disputed Facts
+    Memory -.->|SUPERSEDES| Memory
+    Memory -.->|CONTRADICTS| Memory
+```
+
 Indexes are maintained for `(User.id)`, `(Memory.user_id)`, `(Task.user_id)`, `(Goal.user_id)`, `(Project.user_id)`, `(Person.user_id)`, `(Mistake.user_id)`, and `(Habit.user_id)` at startup.
 
-### Important Cypher patterns
+### How the Agents Query the Graph
+
+The multi-agent system uses deterministic, parameterized Cypher queries scoped strictly by `user_id`:
+
+1. **Memory Ingestion & Reinforcement (`Memory Agent`)**
+   - User messages are parsed into extracted entities (goals, tasks, facts).
+   - Memories are upserted with `MERGE`. Re-observed memories increment `reinforcement_count` and boost confidence.
+
+2. **Goal-First Context Retrieval (`Planner Agent`)**
+   - When a user asks planning questions (*"What should I work on next?"*), the Planner traverses from the user's active goal to connected tasks, dependency chains, and grounding memory facts:
+   ```cypher
+   MATCH (u:User {id:$uid})-[:HAS_GOAL]->(g:Goal)-[:HAS_TASK]->(t:Task)
+   OPTIONAL MATCH (t)-[:RELATED_TO|DEPENDS_ON*0..2]-(connected) WHERE connected.user_id=$uid
+   WITH u, g, t, collect(DISTINCT connected) AS linked
+   RETURN u, g, t, linked LIMIT $lim
+   ```
+
+3. **Cognitive Guardrails & Mistake Prevention**
+   - Before recommending an open task, the agent checks if any known failure mode points to it:
+   ```cypher
+   MATCH (m:Mistake {user_id:$uid})-[:WARNS_AGAINST]->(t:Task {id:$task_id})
+   RETURN m.description, m.prevention_rule
+   ```
+
+4. **Conflict Resolution & Auditing (`Reflection Agent`)**
+   - When conflicting facts are identified, the agent links them with bidirectional `[:CONTRADICTS]` edges and marks their status as `disputed`. Audit history is preserved without destructive deletions.
+
 
 Create/merge user-scoped memories with reinforcement:
 
