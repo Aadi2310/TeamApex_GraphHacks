@@ -4,3 +4,5 @@ frontend/.next/
 backend/**/__pycache__/
 *.py[cod]
 .pytest_cache/
+.venv/
+venv/

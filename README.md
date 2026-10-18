@@ -26,36 +26,58 @@ The Memory Agent stores a user message, an active Sunday goal, one completed tas
 * `backend/app/graph.py` — FalkorDB connection and all application-controlled, parameterized Cypher.
 * `docker-compose.yml` — FalkorDB with persistent storage, API, and UI.
 
-Node labels: `User`, `Session`, `Message`, `Memory`, `Goal`, `Task`, `Agent`. Memory IDs and goal/task IDs are stable hashes; messages and agent events use unique IDs. Properties include user ID, timestamps, source, confidence, task status, and content. The app uses `HAS_SESSION`, `CONTAINS_MESSAGE`, `HAS_MEMORY`, `RELATED_TO`, `HAS_GOAL`, and `HAS_TASK`. Indexes are requested for `Memory.user_id`, `Task.user_id`, and `Goal.user_id` at connection time.
+Node labels: `User`, `Session`, `Message`, `Memory`, `Goal`, `Task`, `Agent`, `Project`, `Person`, `Mistake`, `Habit`. Memory IDs and entity IDs use deterministic sha256 hashes or UUIDs. Properties include user ID, timestamps, source, confidence, task status/priority, and content. The graph schema supports:
+- **Core Organization**: `HAS_SESSION`, `CONTAINS_MESSAGE`, `HAS_MEMORY`, `RELATED_TO`, `HAS_GOAL`, `HAS_TASK`
+- **Execution & Dependencies**: `DEPENDS_ON` (Task → Task), `ASSIGNED_TO` (Task → Person), `WORKS_ON` (User → Project), `BELONGS_TO` (Goal → Project)
+- **Cognitive & Experience**: `MADE_MISTAKE` (User → Mistake), `WARNS_AGAINST` (Mistake → Task), `HAS_HABIT` (User → Habit)
+- **Truth Evolution & Conflict**: `SUPERSEDES` (New → Old Memory), `CONTRADICTS` (Disputed Memory Pairs)
+
+Indexes are maintained for `(User.id)`, `(Memory.user_id)`, `(Task.user_id)`, `(Goal.user_id)`, `(Project.user_id)`, `(Person.user_id)`, `(Mistake.user_id)`, and `(Habit.user_id)` at startup.
 
 ### Important Cypher patterns
 
-Create/merge user-scoped memories:
+Create/merge user-scoped memories with reinforcement:
 
 ```cypher
 MERGE (u:User {id:$uid})
-MERGE (m:Memory {id:$mid,user_id:$uid})
-ON CREATE SET m.content=$content,m.kind=$kind,m.source=$source,
-  m.confidence=$confidence,m.created_at=$now,m.status='active'
+MERGE (m:Memory {id:$mid, user_id:$uid})
+ON CREATE SET m.content=$content, m.kind=$kind, m.source=$source,
+  m.confidence=$confidence, m.created_at=$now, m.status='active', m.reinforcement_count=1
+ON MATCH SET m.updated_at=$now,
+  m.confidence=CASE WHEN m.confidence < $confidence THEN $confidence ELSE m.confidence END,
+  m.reinforcement_count=coalesce(m.reinforcement_count, 1) + 1
 MERGE (u)-[:HAS_MEMORY]->(m)
 ```
 
-Planner context starts with the current user and traverses their active goal to connected tasks, then follows up to two relationship hops to related graph nodes. A second query follows task-to-memory links. Both queries constrain every traversed node to the same user. This is why a task update changes the recommendation: the Planner reads persisted connected task status rather than replaying the original chat or consulting process-local state.
+Graph-native conflict resolution:
+
+```cypher
+MATCH (ma:Memory {id:$ida, user_id:$uid}), (mb:Memory {id:$idb, user_id:$uid})
+SET ma.status='disputed', mb.status='disputed'
+MERGE (ma)-[r1:CONTRADICTS]->(mb) SET r1.reason=$reason, r1.created_at=$now
+MERGE (mb)-[r2:CONTRADICTS]->(ma) SET r2.reason=$reason, r2.created_at=$now
+```
+
+Planner context starts with the current user and traverses their active goal to connected tasks, evaluates task dependency chains (`DEPENDS_ON`), and traverses connected `Mistake` nodes (`WARNS_AGAINST`) to caution against recurring failure modes. All traversals strictly constrain every visited node to the querying user ID.
 
 ## API
 
 All endpoints use the optional `X-User-ID` header (`demo-user` by default). API explorer: `/docs`.
 
-* `POST /api/chat` — save message, extract structured memory, traverse graph, and answer.
+* `POST /api/chat` — save message, extract structured memory (goals, tasks, mistakes, habits, projects), traverse graph, and answer.
 * `GET /api/sessions` and `GET /api/sessions/{session_id}/messages` — scoped conversation history.
-* `GET /api/memories`, `GET /api/graph`, `GET /api/goals` — scoped graph views.
-* `POST /api/tasks`, `PATCH /api/tasks/{task_id}` — create/update task state.
-* `POST /api/agents/reflect`, `GET /api/agents/activity` — reflection and agent event log.
+* `GET /api/memories`, `GET /api/graph`, `GET /api/goals` — scoped graph views and live relationship topology.
+* `POST /api/tasks`, `PATCH /api/tasks/{task_id}`, `POST /api/tasks/{task_id}/dependency` — create/update task state and dependency edges.
+* `GET /api/projects`, `POST /api/projects` — project management and goal association.
+* `GET /api/people`, `POST /api/people` — collaborator and stakeholder entity tracking.
+* `GET /api/mistakes`, `POST /api/mistakes` — lessons learned and mistake avoidance rules.
+* `GET /api/habits`, `POST /api/habits` — recurring patterns and behavioral preferences.
+* `POST /api/agents/reflect`, `GET /api/agents/activity` — reflection with graph-native `[:CONTRADICTS]` edge creation and agent event log.
 * `GET /api/health` — FalkorDB connectivity check.
 
 ## Security and limitations
 
-No credentials are committed; `.env.example` contains placeholders. LLMs do not execute Cypher. User IDs are validated and every API graph query is scoped by user ID. Reflection reports candidate conflicts for human review and preserves history. The included extractor is deterministic and deliberately small: it recognizes common goal and task status phrases, not arbitrary natural language. The UI currently selects the `demo-user` workspace; production deployments should add authentication and derive the user ID from verified identity rather than trusting a request header. Task dependencies and decision nodes are part of the intended schema but are not yet authored by the MVP UI. LLM integration currently supports deterministic mode and OpenAI chat completions.
+No credentials are committed; `.env.example` contains placeholders. LLMs do not execute arbitrary Cypher. User IDs are validated and every API graph query is scoped by user ID. Reflection reports candidate conflicts, marks them in the graph with `[:CONTRADICTS]`, and preserves audit history without silent deletion. The deterministic extractor handles common phrases for goals, task statuses, mistakes, and habits. The UI currently selects the `demo-user` workspace; production deployments should add authentication and derive the user ID from verified identity rather than trusting a request header. LLM integration currently supports deterministic mode and OpenAI chat completions.
 
 ## Verification and demo recording
 
