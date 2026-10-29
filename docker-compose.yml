@@ -1,9 +1,6 @@
 services:
   falkordb:
     image: falkordb/falkordb:v4.20.4
-    ports:
-      - "6379:6379"
-      - "3000:3000"
     environment:
       REDIS_ARGS: "--save 60 1 --appendonly yes --appendfsync everysec"
     volumes:

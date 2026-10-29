@@ -16,7 +16,20 @@ from . import graph
 
 app = FastAPI(title="GraphMind OS API", version="0.1.0", description="Graph-backed shared memory and agent coordination API.")
 logger = logging.getLogger(__name__)
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3001", "http://127.0.0.1:3001"], allow_methods=["*"], allow_headers=["*"])
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:3001,http://127.0.0.1:3001",
+    ).split(",")
+    if origin.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def uid(x: Optional[str]):
     value = x or os.getenv("USER_ID") or "demo-user"
